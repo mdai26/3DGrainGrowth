@@ -140,17 +140,17 @@ void calgrafield(double* eta, double* gradfield) {
                     if (x1D == false) {
                         index1Dtemp1 = convert4Dindex(index_x1, j, k, n);
                         index1Dtemp2 = convert4Dindex(index_x2, j, k, n);
-                        gradfield[index1D] += (eta[index1Dtemp1] + eta[index1Dtemp2] - 2 * eta[index1D]) / pow(dx, 2);
+                        gradfield[index1D] += kxx*(eta[index1Dtemp1] + eta[index1Dtemp2] - 2 * eta[index1D]) / pow(dx, 2);
                     }
                     if (y1D == false) {
                         index1Dtemp1 = convert4Dindex(i, index_y1, k, n);
                         index1Dtemp2 = convert4Dindex(i, index_y2, k, n);
-                        gradfield[index1D] += (eta[index1Dtemp1] + eta[index1Dtemp2] - 2 * eta[index1D]) / pow(dx, 2);
+                        gradfield[index1D] += kyy*(eta[index1Dtemp1] + eta[index1Dtemp2] - 2 * eta[index1D]) / pow(dx, 2);
                     }
                     if (z1D == false) {
                         index1Dtemp1 = convert4Dindex(i, j, index_z1, n);
                         index1Dtemp2 = convert4Dindex(i, j, index_z2, n);
-                        gradfield[index1D] += (eta[index1Dtemp1] + eta[index1Dtemp2] - 2 * eta[index1D]) / pow(dx, 2);
+                        gradfield[index1D] += kzz*(eta[index1Dtemp1] + eta[index1Dtemp2] - 2 * eta[index1D]) / pow(dx, 2);
                     }
                 }
             }
