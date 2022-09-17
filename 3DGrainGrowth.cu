@@ -26,7 +26,7 @@ float h_alpha = 1, h_beta = 1, h_gamma = 1; // alpha, beta, gamma
 float kxx = 2, kyy = 2, kzz = 2; //gradient coefficient
 // simulation settings
 float dx = 2, dt = 0.1;
-int Nstep = 800, Noutput = 20;
+int Nstep = 200, Noutput = 20;
 
 // specify device parameters
 __constant__ int d_Nx, d_Ny, d_Nz;
@@ -102,10 +102,11 @@ __host__ float outputgrainvol(float *eta, float *grainvol, int step) {
 }
 
 __global__
-void updateeta(float *eta, float *RHS){
+void calRHS(float *eta, float *RHS){
     // get current index
     int index;
     index = blockIdx.x * blockDim.x + threadIdx.x;
+    //printf("%d %d %d %d \n", index, blockIdx.x, blockDim.x, threadIdx.x);
     // do calculation if the index is in the range
     if (index < d_Nx * d_Ny * d_Nz * d_Norient){
         // calcualte the i, j, k, n index first
@@ -119,12 +120,11 @@ void updateeta(float *eta, float *RHS){
         j0 = index_temp % d_Ny;
         index_temp = index_temp / d_Ny;
         i0 = index_temp;
-        __syncthreads();
         // calculate the volume energy
         int index_othereta;
         // alpha and beta terms
         RHS[index] = d_alpha * eta[index] - d_beta * pow(eta[index], 3);
-        //printf("%d %.8f\n", index, RHS[index]);
+        //printf("%d %d %d %d %d\n", index, i0, j0, k0, n0);
 	// gamma terms
         for (int ntemp = 0; ntemp < d_Norient; ntemp++) {
             if (ntemp != n0) {
@@ -134,7 +134,6 @@ void updateeta(float *eta, float *RHS){
             }
         }
 	//printf("%d %.8f\n", index, RHS[index]);
-        __syncthreads();
         // calculate the gradient energy
         int index_x1, index_x2;
         int index_y1, index_y2;
@@ -184,15 +183,24 @@ void updateeta(float *eta, float *RHS){
             RHS[index] = RHS[index] + d_kzz * (eta[indextemp1] + eta[indextemp2] - 2 * eta[index]) / pow(d_dx, 2);
         }
 	//printf("%d %.8f\n", index, RHS[index]);
-        __syncthreads();
         // update eta
 	//printf("%d %.8f %.8f\n", index, eta[index], RHS[index]);
-        eta[index] = eta[index] + d_dt * RHS[index];
+        //eta[index] = eta[index] + d_dt * RHS[index];
 	//eta[index] = 1;
 	//printf("%d %.8f %.8f\n", index, eta[index], RHS[index]);
-	__syncthreads();
     }
 }
+
+__global__
+void updateeta(float *eta, float *RHS){
+    // get current index
+    int index;
+    index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < d_Nx * d_Ny * d_Nz * d_Norient){
+	  eta[index] = eta[index] + d_dt * RHS[index];
+    }
+}
+
 
 int main(){
     // specify host arrays
@@ -239,6 +247,7 @@ int main(){
     // specify dimension
     int blocksize = 256;
     int numblocks = (Nx * Ny * Nz * Norient +blocksize-1)/ blocksize;
+    std::cout<<blocksize<<" "<<numblocks<<std::endl;
     //float milliseconds;
     //cudaEvent_t startEvent, stopEvent;
     //checkCuda(cudaEventCreate(&startEvent));
@@ -247,15 +256,19 @@ int main(){
     checkCuda(cudaEventRecord(startEvent,0));
     for (int s = 1; s <= Nstep; s++){
 	//checkCuda(cudaEventRecord(startEvent, 0));
-        updateeta<<<numblocks, blocksize>>>(d_eta, d_RHS);
+        calRHS<<<numblocks, blocksize>>>(d_eta, d_RHS);
+	updateeta<<<numblocks, blocksize>>>(d_eta, d_RHS);
 	//checkCuda(cudaEventRecord(stopEvent, 0));
 	//checkCuda(cudaEventSynchronize(stopEvent));
 	//checkCuda(cudaEventElapsedTime(&milliseconds, startEvent, stopEvent));
 	//printf("Average time(ms):%f\n", milliseconds);
         if (s % Noutput == 0){
             checkCuda(cudaMemcpy(eta, d_eta, Nx*Ny*Nz*Norient*sizeof(float), cudaMemcpyDeviceToHost));
-	    //printf("%f\n", eta[0]);
+	    //for (int te = 0; te < Norient; te++){
+	    //	    printf("%.16f\n", eta[te]);
+            //}
 	    avegrainvol = outputgrainvol(eta, grainvol, s);
+	    //printf("%.16f\n", grainvol[0]);
             grainfile << s << " " << avegrainvol << std::endl;
             std::cout << s << " " << avegrainvol << std::endl;
         }
