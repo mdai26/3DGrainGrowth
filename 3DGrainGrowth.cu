@@ -19,14 +19,14 @@ cudaError_t checkCuda(cudaError_t result)
 }
 
 // specify parameters
-int Nx = 64, Ny = 64, Nz = 64; // system dimension
-int Norient = 36; // number of orientations
+int Nx, Ny, Nz; // system dimension
+int Norient; // number of orientations
 // coefficient
-float h_alpha = 1, h_beta = 1, h_gamma = 1; // alpha, beta, gamma
-float kxx = 2, kyy = 2, kzz = 2; //gradient coefficient
+float h_alpha, h_beta, h_gamma; // alpha, beta, gamma
+float kxx, kyy, kzz; //gradient coefficient
 // simulation settings
-float dx = 2, dt = 0.1;
-int Nstep = 200, Noutput = 20;
+float dx, dt;
+int Nstep, Noutput;
 
 // specify device parameters
 __constant__ int d_Nx, d_Ny, d_Nz;
@@ -36,6 +36,26 @@ __constant__ float d_alpha, d_beta, d_gamma;
 __constant__ float d_dx,d_dt;
 
 // CPU functions
+// read parameters
+void readparam(){
+    std::ifstream inputfile;
+    inputfile.open("param.in");
+    // error message if the file is not opened
+    if (inputfile.is_open() == false){
+        std::cout << "param.in cannot be opened" << std::endl;
+        exit(1);
+    }
+    // read data line by line; ignore to skip comments
+    inputfile >> Nx >> Ny >> Nz; inputfile.ignore(1000, '\n');
+    inputfile >> Norient; inputfile.ignore(1000, '\n');
+    inputfile >> h_alpha >> h_beta >> h_gamma; inputfile.ignore(1000, '\n');
+    inputfile >> kxx >> kyy >> kzz; inputfile.ignore(1000, '\n');
+    inputfile >> dx; inputfile.ignore(1000, '\n');
+    inputfile >> dt; inputfile.ignore(1000, '\n');
+    inputfile >> Nstep >> Noutput; inputfile.ignore(1000, '\n');
+    inputfile.close();
+}
+
 //4D index to 1D index
 __host__ int hconvert4Dindex(int i, int j, int k, int n) {
     int index1D;
@@ -106,7 +126,6 @@ void calRHS(float *eta, float *RHS){
     // get current index
     int index;
     index = blockIdx.x * blockDim.x + threadIdx.x;
-    //printf("%d %d %d %d \n", index, blockIdx.x, blockDim.x, threadIdx.x);
     // do calculation if the index is in the range
     if (index < d_Nx * d_Ny * d_Nz * d_Norient){
         // calcualte the i, j, k, n index first
@@ -124,16 +143,13 @@ void calRHS(float *eta, float *RHS){
         int index_othereta;
         // alpha and beta terms
         RHS[index] = d_alpha * eta[index] - d_beta * pow(eta[index], 3);
-        //printf("%d %d %d %d %d\n", index, i0, j0, k0, n0);
 	// gamma terms
         for (int ntemp = 0; ntemp < d_Norient; ntemp++) {
             if (ntemp != n0) {
                 index_othereta = dconvert4Dindex(i0, j0, k0, ntemp);
                 RHS[index] = RHS[index] -2 * d_gamma * eta[index] * pow(eta[index_othereta], 2);
-		//printf("%.8f\n", d_gamma * eta[index]*eta[index_othereta]*eta[index_othereta]);
             }
         }
-	//printf("%d %.8f\n", index, RHS[index]);
         // calculate the gradient energy
         int index_x1, index_x2;
         int index_y1, index_y2;
@@ -170,24 +186,16 @@ void calRHS(float *eta, float *RHS){
             indextemp2 = dconvert4Dindex(index_x2, j0, k0, n0);
             RHS[index] = RHS[index] + d_kxx * (eta[indextemp1] + eta[indextemp2] - 2 * eta[index]) / pow(d_dx, 2);
         }
-	//printf("%d %.8f\n", index, RHS[index]);
         if (y1D == false) {
             indextemp1 = dconvert4Dindex(i0, index_y1, k0, n0);
             indextemp2 = dconvert4Dindex(i0, index_y2, k0, n0);
             RHS[index] = RHS[index] + d_kyy * (eta[indextemp1] + eta[indextemp2] - 2 * eta[index]) / pow(d_dx, 2);
         }
-	//printf("%d %.8f\n", index, RHS[index]);
         if (z1D == false) {
             indextemp1 = dconvert4Dindex(i0, j0, index_z1, n0);
             indextemp2 = dconvert4Dindex(i0, j0, index_z2, n0);
             RHS[index] = RHS[index] + d_kzz * (eta[indextemp1] + eta[indextemp2] - 2 * eta[index]) / pow(d_dx, 2);
         }
-	//printf("%d %.8f\n", index, RHS[index]);
-        // update eta
-	//printf("%d %.8f %.8f\n", index, eta[index], RHS[index]);
-        //eta[index] = eta[index] + d_dt * RHS[index];
-	//eta[index] = 1;
-	//printf("%d %.8f %.8f\n", index, eta[index], RHS[index]);
     }
 }
 
@@ -203,6 +211,8 @@ void updateeta(float *eta, float *RHS){
 
 
 int main(){
+    // read parameters
+    readparam();
     // specify host arrays
     float *eta, *RHS, *grainvol;
     eta = (float*)malloc(Nx*Ny*Nz*Norient*sizeof(float));
@@ -225,6 +235,7 @@ int main(){
     checkCuda(cudaMemcpyToSymbol(d_gamma, &h_gamma, sizeof(float), 0, cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpyToSymbol(d_dx, &dx, sizeof(float), 0, cudaMemcpyHostToDevice));
     checkCuda(cudaMemcpyToSymbol(d_dt, &dt, sizeof(float), 0, cudaMemcpyHostToDevice));
+    
     // average grainvol
     float avegrainvol;
     // initialize
@@ -247,28 +258,14 @@ int main(){
     // specify dimension
     int blocksize = 256;
     int numblocks = (Nx * Ny * Nz * Norient +blocksize-1)/ blocksize;
-    std::cout<<blocksize<<" "<<numblocks<<std::endl;
-    //float milliseconds;
-    //cudaEvent_t startEvent, stopEvent;
-    //checkCuda(cudaEventCreate(&startEvent));
-    //checkCuda(cudaEventCreate(&stopEvent));
     // loop
     checkCuda(cudaEventRecord(startEvent,0));
     for (int s = 1; s <= Nstep; s++){
-	//checkCuda(cudaEventRecord(startEvent, 0));
         calRHS<<<numblocks, blocksize>>>(d_eta, d_RHS);
 	updateeta<<<numblocks, blocksize>>>(d_eta, d_RHS);
-	//checkCuda(cudaEventRecord(stopEvent, 0));
-	//checkCuda(cudaEventSynchronize(stopEvent));
-	//checkCuda(cudaEventElapsedTime(&milliseconds, startEvent, stopEvent));
-	//printf("Average time(ms):%f\n", milliseconds);
         if (s % Noutput == 0){
             checkCuda(cudaMemcpy(eta, d_eta, Nx*Ny*Nz*Norient*sizeof(float), cudaMemcpyDeviceToHost));
-	    //for (int te = 0; te < Norient; te++){
-	    //	    printf("%.16f\n", eta[te]);
-            //}
 	    avegrainvol = outputgrainvol(eta, grainvol, s);
-	    //printf("%.16f\n", grainvol[0]);
             grainfile << s << " " << avegrainvol << std::endl;
             std::cout << s << " " << avegrainvol << std::endl;
         }
