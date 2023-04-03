@@ -1,6 +1,6 @@
 # 3DGrainGrowth
 
-This repo contains the GPU-accelerated code of 3D Grain Growth.
+This repo contains the GPU-accelerated code of 3D Grain Growth using CUDA.
 
 ### Compile
 ```
